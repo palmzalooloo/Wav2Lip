@@ -12,6 +12,8 @@ from torch.utils import data as data_utils
 import numpy as np
 
 from glob import glob
+import subprocess
+import wandb
 
 import os, random, cv2, argparse
 from hparams import hparams, get_image_list
@@ -25,6 +27,8 @@ parser.add_argument('--checkpoint_path', help='Resumed from this checkpoint', de
 
 args = parser.parse_args()
 
+# Log in to wandb
+subprocess.call(["wandb", "login"])
 
 global_step = 0
 global_epoch = 0
@@ -138,8 +142,8 @@ def cosine_loss(a, v, y):
     return loss
 
 def train(device, model, train_data_loader, test_data_loader, optimizer,
-          checkpoint_dir=None, checkpoint_interval=None, nepochs=None):
-
+          checkpoint_dir=None, checkpoint_interval=None, nepochs=None):    
+    
     global global_step, global_epoch
     resumed_step = global_step
     
@@ -172,9 +176,15 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
 
             if global_step % hparams.syncnet_eval_interval == 0:
                 with torch.no_grad():
-                    eval_model(test_data_loader, global_step, device, model, checkpoint_dir)
+                    val_loss = eval_model(test_data_loader, global_step, device, model, checkpoint_dir)
 
             prog_bar.set_description('Loss: {}'.format(running_loss / (step + 1)))
+            
+            wandb.log({
+                'train_loss': running_loss / (step + 1),
+                'val_loss': val_loss,
+                'lr': optimizer.param_groups[0]['lr']
+                })
 
         global_epoch += 1
 
@@ -203,7 +213,7 @@ def eval_model(test_data_loader, global_step, device, model, checkpoint_dir):
         averaged_loss = sum(losses) / len(losses)
         print(averaged_loss)
 
-        return
+        return averaged_loss
 
 def save_checkpoint(model, optimizer, step, checkpoint_dir, epoch):
 
@@ -273,6 +283,17 @@ if __name__ == "__main__":
     if checkpoint_path is not None:
         load_checkpoint(checkpoint_path, model, optimizer, reset_optimizer=False)
 
+    # init wandb
+    wandb.init(project="my-test-project", entity="looloo", name="syncnet")
+    wandb.config = {
+        "learning_rate": hparams.syncnet_lr,
+        "epochs": hparams.nepochs,
+        "batch_size": hparams.syncnet_batch_size,
+        "fps" : hparams.fps,
+        "img_size" : hparams.img_size,
+    }
+
+    
     train(device, model, train_data_loader, test_data_loader, optimizer,
           checkpoint_dir=checkpoint_dir,
           checkpoint_interval=hparams.syncnet_checkpoint_interval,
