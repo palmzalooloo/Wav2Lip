@@ -67,7 +67,7 @@ class FaceAlignment:
         results = []
 
         for i, d in enumerate(detected_faces):
-            if len(d) == 0:
+            if len(d) == 0 or len(d) > 1:
                 results.append(None)
                 continue
             d = d[0]
